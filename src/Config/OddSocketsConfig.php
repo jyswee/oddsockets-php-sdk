@@ -16,7 +16,7 @@ final class OddSocketsConfig
 {
     public function __construct(
         private readonly string $apiKey,
-        private readonly string $managerUrl = 'https://manager1.oddsockets.tyga.network',
+        private readonly string $managerUrl = 'https://connect.oddsockets.tyga.network',
         private readonly ?string $userId = null,
         private readonly bool $autoConnect = true,
         private readonly int $reconnectAttempts = 5,

@@ -12,7 +12,7 @@ namespace OddSockets;
  */
 class ManagerDiscovery
 {
-    private string $managerUrl = 'https://manager1.oddsockets.tyga.network';
+    private string $managerUrl = 'https://connect.oddsockets.tyga.network';
 
     /**
      * Get the manager URL (always returns the main endpoint)

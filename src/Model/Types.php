@@ -626,7 +626,7 @@ final class Constants
     public const SDK_VERSION = '0.1.0-beta.1';
     public const SDK_NAME = 'OddSockets-PHP-SDK';
     public const USER_AGENT = self::SDK_NAME . '/' . self::SDK_VERSION;
-    public const DEFAULT_MANAGER_URL = 'https://manager1.oddsockets.tyga.network';
+    public const DEFAULT_MANAGER_URL = 'https://connect.oddsockets.tyga.network';
     public const DEFAULT_TIMEOUT_SECONDS = 10;
     public const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
     public const DEFAULT_RECONNECT_ATTEMPTS = 5;
