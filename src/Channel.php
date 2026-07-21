@@ -49,7 +49,7 @@ class Channel implements EventEmitterInterface
         if ($this->subscribed || $this->subscribing) {
             // Add callback to existing subscription
             $this->on('message', $callback);
-            return \React\Promise\resolve();
+            return \React\Promise\resolve(null);
         }
 
         if (!$this->client->isConnected()) {
@@ -68,21 +68,21 @@ class Channel implements EventEmitterInterface
         $deferred = new Deferred();
 
         // Set up one-time listeners for subscription response
-        $onSubscribed = function (array $data) use ($callback, $deferred) {
+        $onSubscribed = function (array $data) use ($callback, $deferred, &$onSubscribed, &$onError) {
             if ($data['channel'] === $this->name) {
                 $this->subscribed = true;
                 $this->subscribing = false;
                 $this->on('message', $callback);
-                
+
                 $this->client->removeListener('subscribed', $onSubscribed);
                 $this->client->removeListener('error', $onError);
-                
+
                 $this->emit('subscribed', [$data]);
-                $deferred->resolve();
+                $deferred->resolve(null);
             }
         };
 
-        $onError = function (\Exception $error) use ($deferred) {
+        $onError = function (\Exception $error) use ($deferred, &$onSubscribed, &$onError) {
             $this->subscribing = false;
             $this->client->removeListener('subscribed', $onSubscribed);
             $this->client->removeListener('error', $onError);
@@ -119,7 +119,7 @@ class Channel implements EventEmitterInterface
     public function unsubscribe(): Promise
     {
         if (!$this->subscribed) {
-            return \React\Promise\resolve();
+            return \React\Promise\resolve(null);
         }
 
         if (!$this->client->isConnected()) {
@@ -128,20 +128,20 @@ class Channel implements EventEmitterInterface
 
         $deferred = new Deferred();
 
-        $onUnsubscribed = function (array $data) use ($deferred) {
+        $onUnsubscribed = function (array $data) use ($deferred, &$onUnsubscribed, &$onError) {
             if ($data['channel'] === $this->name) {
                 $this->subscribed = false;
                 $this->removeAllListeners('message');
-                
+
                 $this->client->removeListener('unsubscribed', $onUnsubscribed);
                 $this->client->removeListener('error', $onError);
-                
+
                 $this->emit('unsubscribed', [$data]);
-                $deferred->resolve();
+                $deferred->resolve(null);
             }
         };
 
-        $onError = function (\Exception $error) use ($deferred) {
+        $onError = function (\Exception $error) use ($deferred, &$onUnsubscribed, &$onError) {
             $this->client->removeListener('unsubscribed', $onUnsubscribed);
             $this->client->removeListener('error', $onError);
             $deferred->reject($error);
@@ -186,7 +186,7 @@ class Channel implements EventEmitterInterface
 
         $deferred = new Deferred();
 
-        $onPublished = function (array $data) use ($deferred) {
+        $onPublished = function (array $data) use ($deferred, &$onPublished, &$onError) {
             if ($data['channel'] === $this->name) {
                 $this->client->removeListener('published', $onPublished);
                 $this->client->removeListener('error', $onError);
@@ -194,7 +194,7 @@ class Channel implements EventEmitterInterface
             }
         };
 
-        $onError = function (\Exception $error) use ($deferred) {
+        $onError = function (\Exception $error) use ($deferred, &$onPublished, &$onError) {
             $this->client->removeListener('published', $onPublished);
             $this->client->removeListener('error', $onError);
             $deferred->reject($error);
@@ -233,7 +233,7 @@ class Channel implements EventEmitterInterface
 
         $deferred = new Deferred();
 
-        $onHistory = function (array $data) use ($deferred) {
+        $onHistory = function (array $data) use ($deferred, &$onHistory, &$onError) {
             if ($data['channel'] === $this->name) {
                 $this->client->removeListener('history', $onHistory);
                 $this->client->removeListener('error', $onError);
@@ -241,7 +241,7 @@ class Channel implements EventEmitterInterface
             }
         };
 
-        $onError = function (\Exception $error) use ($deferred) {
+        $onError = function (\Exception $error) use ($deferred, &$onHistory, &$onError) {
             $this->client->removeListener('history', $onHistory);
             $this->client->removeListener('error', $onError);
             $deferred->reject($error);
@@ -278,7 +278,7 @@ class Channel implements EventEmitterInterface
 
         $deferred = new Deferred();
 
-        $onPresence = function (array $data) use ($deferred) {
+        $onPresence = function (array $data) use ($deferred, &$onPresence, &$onError) {
             if ($data['channel'] === $this->name) {
                 $this->client->removeListener('presence', $onPresence);
                 $this->client->removeListener('error', $onError);
@@ -286,7 +286,7 @@ class Channel implements EventEmitterInterface
             }
         };
 
-        $onError = function (\Exception $error) use ($deferred) {
+        $onError = function (\Exception $error) use ($deferred, &$onPresence, &$onError) {
             $this->client->removeListener('presence', $onPresence);
             $this->client->removeListener('error', $onError);
             $deferred->reject($error);
@@ -323,13 +323,13 @@ class Channel implements EventEmitterInterface
 
         $deferred = new Deferred();
 
-        $onStateUpdated = function (array $data) use ($deferred) {
+        $onStateUpdated = function (array $data) use ($deferred, &$onStateUpdated, &$onError) {
             $this->client->removeListener('state_updated', $onStateUpdated);
             $this->client->removeListener('error', $onError);
             $deferred->resolve($data);
         };
 
-        $onError = function (\Exception $error) use ($deferred) {
+        $onError = function (\Exception $error) use ($deferred, &$onStateUpdated, &$onError) {
             $this->client->removeListener('state_updated', $onStateUpdated);
             $this->client->removeListener('error', $onError);
             $deferred->reject($error);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OddSockets;
 
 use OddSockets\Config\OddSocketsConfig;
+use OddSockets\Exception\OddSocketsException;
 use OddSockets\Exception\ConnectionException;
 use OddSockets\Exception\AuthenticationException;
 use OddSockets\Exception\TimeoutException;
@@ -18,8 +19,8 @@ use React\Socket\Connector;
 use React\Stream\WritableResourceStream;
 use Ratchet\Client\WebSocket;
 use Ratchet\Client\Connector as WsConnector;
-use GuzzleHttp\Client as HttpClient;
-use GuzzleHttp\Exception\RequestException;
+use React\Http\Browser;
+use Psr\Http\Message\ResponseInterface;
 
 /**
  * OddSockets PHP SDK
@@ -29,7 +30,9 @@ use GuzzleHttp\Exception\RequestException;
  */
 class OddSocketsClient implements EventEmitterInterface
 {
-    use EventEmitterTrait;
+    use EventEmitterTrait {
+        emit as protected localEmit;
+    }
 
     private OddSocketsConfig $config;
     private LoopInterface $loop;
@@ -43,7 +46,8 @@ class OddSocketsClient implements EventEmitterInterface
     private string $clientIdentifier;
     private ?array $sessionInfo = null;
     private ManagerDiscovery $managerDiscovery;
-    private HttpClient $httpClient;
+    private Browser $httpClient;
+    private ?Deferred $pendingConnect = null;
 
     public function __construct(OddSocketsConfig $config, ?LoopInterface $loop = null)
     {
@@ -51,12 +55,11 @@ class OddSocketsClient implements EventEmitterInterface
         $this->loop = $loop ?? Loop::get();
         $this->clientIdentifier = $this->generateClientIdentifier();
         $this->managerDiscovery = new ManagerDiscovery();
-        $this->httpClient = new HttpClient([
-            'timeout' => $config->getTimeout(),
-            'headers' => [
-                'User-Agent' => 'OddSockets-PHP-SDK/1.0.0'
-            ]
-        ]);
+        // Use the ReactPHP HTTP client so the manager request runs on the same
+        // event loop as the WebSocket transport (a Guzzle async promise would
+        // never tick under Loop::run()).
+        $this->httpClient = (new Browser($this->loop))
+            ->withTimeout($config->getTimeout());
 
         // Auto-connect by default
         if ($config->isAutoConnect()) {
@@ -71,7 +74,7 @@ class OddSocketsClient implements EventEmitterInterface
     public function connect(): Promise
     {
         if ($this->connectionState === 'connecting' || $this->connectionState === 'connected') {
-            return \React\Promise\resolve();
+            return \React\Promise\resolve(null);
         }
 
         $this->connectionState = 'connecting';
@@ -85,12 +88,12 @@ class OddSocketsClient implements EventEmitterInterface
                 // Step 2: Connect to assigned worker
                 return $this->connectToWorker();
             })
-            ->then(function () {
+            ->then(function () use ($deferred) {
                 $this->connectionState = 'connected';
                 $this->reconnectAttempts = 0;
                 $this->reconnectDelay = 1000;
                 $this->emit('connected');
-                $deferred->resolve();
+                $deferred->resolve(null);
             })
             ->otherwise(function (\Exception $error) use ($deferred) {
                 $this->connectionState = 'disconnected';
@@ -247,14 +250,17 @@ class OddSocketsClient implements EventEmitterInterface
             // Discover the optimal manager URL automatically
             $managerUrl = $this->managerDiscovery->discoverManagerUrl($this->config->getApiKey());
 
-            $this->httpClient->getAsync($managerUrl . '/api/cluster/select-worker', [
-                'query' => [
-                    'apiKey' => $this->config->getApiKey(),
-                    'userId' => $this->config->getUserId() ?? $this->clientIdentifier,
-                    'clientIdentifier' => $this->clientIdentifier
-                ]
-            ])->then(function ($response) use ($deferred, $managerUrl) {
-                $data = json_decode($response->getBody()->getContents(), true);
+            $query = http_build_query([
+                'apiKey' => $this->config->getApiKey(),
+                'userId' => $this->config->getUserId() ?? $this->clientIdentifier,
+                'clientIdentifier' => $this->clientIdentifier,
+            ]);
+            $url = $managerUrl . '/api/cluster/select-worker?' . $query;
+
+            $this->httpClient->get($url, [
+                'User-Agent' => 'OddSockets-PHP-SDK/1.0.0',
+            ])->then(function (ResponseInterface $response) use ($deferred, $managerUrl) {
+                $data = json_decode((string) $response->getBody(), true);
 
                 if (!$data || !isset($data['url'])) {
                     $deferred->reject(new ConnectionException('Invalid worker assignment response'));
@@ -273,14 +279,15 @@ class OddSocketsClient implements EventEmitterInterface
                     'managerUrl' => $managerUrl // Include discovered manager URL for debugging
                 ]]);
 
-                $deferred->resolve();
-            })->otherwise(function (RequestException $error) use ($deferred) {
-                // If manager is offline, try fallback logic
-                if (strpos($error->getMessage(), 'Connection refused') !== false ||
-                    strpos($error->getMessage(), 'Could not resolve host') !== false) {
+                $deferred->resolve(null);
+            })->otherwise(function (\Throwable $error) use ($deferred) {
+                $message = $error->getMessage();
+                if (strpos($message, 'refused') !== false ||
+                    strpos($message, 'resolve') !== false ||
+                    strpos($message, 'name resolution') !== false) {
                     $deferred->reject(new ConnectionException('Manager is offline. Cannot assign worker without session stickiness.'));
                 } else {
-                    $deferred->reject(new ConnectionException('Failed to get worker assignment: ' . $error->getMessage()));
+                    $deferred->reject(new ConnectionException('Failed to get worker assignment: ' . $message));
                 }
             });
 
@@ -293,6 +300,11 @@ class OddSocketsClient implements EventEmitterInterface
 
     /**
      * Internal: Connect to assigned worker
+     *
+     * Opens a WebSocket to the worker's Socket.IO endpoint and performs the
+     * Engine.IO v4 / Socket.IO handshake. The returned promise resolves only
+     * once the server acknowledges our Socket.IO CONNECT packet, not merely
+     * when the raw WebSocket opens.
      */
     private function connectToWorker(): Promise
     {
@@ -301,29 +313,34 @@ class OddSocketsClient implements EventEmitterInterface
         }
 
         $deferred = new Deferred();
+        $this->pendingConnect = $deferred;
 
         $connector = new WsConnector($this->loop);
 
-        // Parse WebSocket URL from HTTP URL
-        $wsUrl = str_replace(['http://', 'https://'], ['ws://', 'wss://'], $this->workerUrl);
+        // The worker runs a Socket.IO server: connect on the Engine.IO v4
+        // WebSocket transport path, not the bare worker root.
+        $base = str_replace(['http://', 'https://'], ['ws://', 'wss://'], rtrim($this->workerUrl, '/'));
+        $wsUrl = $base . '/socket.io/?EIO=4&transport=websocket';
 
-        $connector($wsUrl, ['Sec-WebSocket-Protocol' => 'oddsockets'], [
-            'auth' => [
-                'apiKey' => $this->config->getApiKey(),
-                'userId' => $this->config->getUserId()
-            ]
-        ])->then(function (WebSocket $conn) use ($deferred) {
+        $connector($wsUrl)->then(function (WebSocket $conn) {
+            // The raw socket is open, but we are not "connected" until the
+            // Socket.IO CONNECT handshake completes (see the message handler).
             $this->socket = $conn;
             $this->setupSocketEventHandlers();
-            $deferred->resolve();
-        })->otherwise(function (\Exception $error) use ($deferred) {
-            $deferred->reject(new ConnectionException('Failed to connect to worker: ' . $error->getMessage()));
+        })->otherwise(function (\Exception $error) {
+            if ($this->pendingConnect !== null) {
+                $d = $this->pendingConnect;
+                $this->pendingConnect = null;
+                $d->reject(new ConnectionException('Failed to connect to worker: ' . $error->getMessage()));
+            }
         });
 
-        // Timeout fallback
-        $this->loop->addTimer(15.0, function () use ($deferred) {
-            if ($this->connectionState === 'connecting') {
-                $deferred->reject(new TimeoutException('Connection timeout'));
+        // Timeout fallback covering both the WS open and the Socket.IO handshake.
+        $this->loop->addTimer(15.0, function () {
+            if ($this->pendingConnect !== null) {
+                $d = $this->pendingConnect;
+                $this->pendingConnect = null;
+                $d->reject(new TimeoutException('Connection timeout'));
             }
         });
 
@@ -355,34 +372,124 @@ class OddSocketsClient implements EventEmitterInterface
             $this->emit('error', [$error]);
         });
 
-        // Handle incoming messages
+        // Handle incoming Engine.IO / Socket.IO frames.
         $this->socket->on('message', function ($msg) {
             try {
-                $data = json_decode($msg->getPayload(), true);
-                if (!$data) {
-                    return;
-                }
-
-                $this->handleSocketMessage($data);
+                $this->handleFrame((string) $msg->getPayload());
             } catch (\Exception $error) {
-                $this->emit('error', [$error]);
+                $this->localEmit('error', [$error]);
             }
         });
     }
 
     /**
-     * Internal: Handle socket messages
+     * Internal: Decode a raw Engine.IO frame and act on it.
+     *
+     * Engine.IO packet types (first char): 0=OPEN, 2=PING, 3=PONG, 4=MESSAGE.
+     * A MESSAGE (4) wraps a Socket.IO packet whose type is the next char:
+     * 0=CONNECT, 1=DISCONNECT, 2=EVENT, 3=ACK, 4=CONNECT_ERROR.
      */
-    private function handleSocketMessage(array $data): void
+    private function handleFrame(string $payload): void
     {
-        $event = $data['event'] ?? null;
-        $channelName = $data['channel'] ?? null;
-
-        if (!$event) {
+        if ($payload === '') {
             return;
         }
 
-        // Forward channel-related events to appropriate channels
+        $engineType = $payload[0];
+
+        // Engine.IO PING -> reply PONG so the server does not time us out.
+        if ($engineType === '2') {
+            $this->socket->send('3');
+            return;
+        }
+
+        // Engine.IO PONG (unsolicited in our flow) - nothing to do.
+        if ($engineType === '3') {
+            return;
+        }
+
+        // Engine.IO OPEN: the handshake is ready, now send the Socket.IO
+        // CONNECT packet carrying our auth (apiKey/userId land in
+        // socket.handshake.auth on the worker).
+        if ($engineType === '0') {
+            $auth = [
+                'apiKey' => $this->config->getApiKey(),
+                'userId' => $this->config->getUserId() ?? $this->clientIdentifier,
+            ];
+            $this->socket->send('40' . json_encode($auth));
+            return;
+        }
+
+        // Engine.IO MESSAGE wrapping a Socket.IO packet.
+        if ($engineType === '4') {
+            $socketType = $payload[1] ?? '';
+            $body = substr($payload, 2);
+
+            switch ($socketType) {
+                case '0': // Socket.IO CONNECT ack -> we are fully connected.
+                    if ($this->pendingConnect !== null) {
+                        $d = $this->pendingConnect;
+                        $this->pendingConnect = null;
+                        $d->resolve(null);
+                    }
+                    return;
+
+                case '1': // Socket.IO DISCONNECT
+                    $this->connectionState = 'disconnected';
+                    $this->localEmit('disconnected', ['Server disconnect']);
+                    return;
+
+                case '2': // Socket.IO EVENT: ["event", payload]
+                    // Skip an optional numeric ack id before the JSON array.
+                    $bracket = strpos($body, '[');
+                    if ($bracket !== false) {
+                        $body = substr($body, $bracket);
+                    }
+                    $decoded = json_decode($body, true);
+                    if (is_array($decoded) && isset($decoded[0])) {
+                        $this->dispatchEvent((string) $decoded[0], $decoded[1] ?? []);
+                    }
+                    return;
+
+                case '4': // Socket.IO CONNECT_ERROR (e.g. auth failure)
+                    $decoded = json_decode($body, true);
+                    $message = is_array($decoded)
+                        ? ($decoded['message'] ?? 'Connection rejected')
+                        : (is_string($decoded) ? $decoded : 'Connection rejected');
+                    $error = new AuthenticationException($message);
+                    $this->localEmit('error', [$error]);
+                    if ($this->pendingConnect !== null) {
+                        $d = $this->pendingConnect;
+                        $this->pendingConnect = null;
+                        $d->reject($error);
+                    }
+                    return;
+            }
+        }
+    }
+
+    /**
+     * Internal: Route a decoded Socket.IO event to channels and listeners.
+     */
+    private function dispatchEvent(string $event, $payload): void
+    {
+        $data = is_array($payload) ? $payload : ['data' => $payload];
+
+        // Worker errors arrive as {type, message}. Normalise them to an
+        // exception so every 'error' listener consistently receives a Throwable
+        // (matching the transport-level errors the SDK emits itself).
+        if ($event === 'error') {
+            $message = ($data['type'] ?? 'ERROR') . ': ' . ($data['message'] ?? 'Unknown error');
+            $error = ($data['type'] ?? '') === 'PERMISSION_DENIED'
+                ? new AuthenticationException($message)
+                : new OddSocketsException($message);
+            $this->localEmit('error', [$error]);
+            return;
+        }
+
+        $channelName = $data['channel'] ?? null;
+
+        // Forward channel-related events to the appropriate channel.
         if ($channelName && isset($this->channels[$channelName])) {
             $channel = $this->channels[$channelName];
 
@@ -411,8 +518,8 @@ class OddSocketsClient implements EventEmitterInterface
             }
         }
 
-        // Also emit on client for global listeners
-        $this->emit($event, [$data]);
+        // Also surface the event to global client listeners.
+        $this->localEmit($event, [$data]);
     }
 
     /**
@@ -471,30 +578,57 @@ class OddSocketsClient implements EventEmitterInterface
             $hash = $hash & 0xFFFFFFFF; // Convert to 32-bit integer
         }
         
-        return base_convert(abs($hash), 10, 36);
+        return base_convert((string) abs($hash), 10, 36);
     }
 
     /**
-     * Send data to the WebSocket
+     * Send a low-level event to the worker.
+     *
+     * Accepts the historical shape ['event' => name, ...payload] and encodes it
+     * as a proper Socket.IO EVENT frame.
      */
     public function send(array $data): void
     {
-        if ($this->socket && $this->isConnected()) {
-            $this->socket->send(json_encode($data));
+        $event = $data['event'] ?? null;
+        if ($event === null) {
+            return;
         }
+        unset($data['event']);
+        $this->sendEvent((string) $event, $data);
     }
 
     /**
-     * Emit data to the WebSocket (alias for send)
+     * Internal: Encode and transmit a Socket.IO EVENT packet.
+     *
+     * Wire format: Engine.IO MESSAGE (4) + Socket.IO EVENT (2) + JSON array
+     * ["event", payload], i.e. `42["subscribe",{...}]`.
      */
-    public function emit(string $event, array $data = []): void
+    private function sendEvent(string $event, array $payload): void
     {
-        if ($event === 'subscribe' || $event === 'unsubscribe' || $event === 'publish' || 
+        if ($this->socket === null) {
+            return;
+        }
+        // Encode an empty payload as {} (object), not [] (array), to match the
+        // JavaScript SDK's argument shape.
+        $args = [$event, empty($payload) ? new \stdClass() : $payload];
+        $this->socket->send('42' . json_encode($args));
+    }
+
+    /**
+     * Emit an event.
+     *
+     * Operation events are sent to the worker over Socket.IO; all other events
+     * are dispatched locally via the EventEmitter.
+     */
+    public function emit($event, array $data = [])
+    {
+        if ($event === 'subscribe' || $event === 'unsubscribe' || $event === 'publish' ||
             $event === 'get_history' || $event === 'get_presence' || $event === 'update_state') {
-            $this->send(array_merge(['event' => $event], $data[0] ?? []));
+            // Channel passes the payload directly as the associative $data array.
+            $this->sendEvent($event, $data);
         } else {
             // Use EventEmitter's emit for local events
-            parent::emit($event, $data);
+            $this->localEmit($event, $data);
         }
     }
 }
