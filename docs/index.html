@@ -691,6 +691,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a href="#enhanced-features" class="nav-link">
+                            <i class="fas fa-bolt nav-icon"></i>
+                            Enhanced Features
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a href="#performance" class="nav-link">
                             <i class="fas fa-chart-line nav-icon"></i>
                             Performance
@@ -807,7 +813,7 @@
                                 Copy
                             </button>
                         </div>
-                        <pre><code class="language-bash">composer require oddsockets/php-sdk</code></pre>
+                        <pre><code class="language-bash">composer require jyswee/oddsockets-php-sdk</code></pre>
                     </div>
                 </div>
 
@@ -995,6 +1001,79 @@ $channel->publish($message, [
                         <p>Browse all available examples including basic usage, advanced features, and framework integrations</p>
                     </a>
                 </div>
+            </section>
+
+            <section id="enhanced-features" class="section">
+                <h2 class="section-title">
+                    <i class="fas fa-bolt"></i>
+                    Enhanced Features
+                </h2>
+
+                <p>Beyond core pub/sub, OddSockets ships a Slack-like <strong>enhanced surface</strong>: typing indicators, reactions, threads, read receipts, presence/status, notifications, DMs, channel management, message editing and search. It lives on the public <code>$client-&gt;enhanced</code> property. Send actions with <code>$client-&gt;enhanced-&gt;*</code> (camelCase) and receive the paired broadcasts with <code>$client-&gt;on('&lt;event&gt;', $handler)</code>.</p>
+
+                <h3 class="section-subtitle">Typing &amp; Reactions</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">php</span>
+                        <button class="code-copy" onclick="copyCode(this)">
+                            <i class="fas fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <pre><code class="language-php">&lt;?php
+
+use OddSockets\OddSockets;
+use React\EventLoop\Loop;
+
+$client = OddSockets::create(['apiKey' =&gt; 'ak_live_1234567890abcdef', 'userId' =&gt; 'alice']);
+
+$client-&gt;connect()-&gt;then(function () use ($client) {
+    $channel = $client-&gt;channel('room-42');
+    $channel-&gt;subscribe(function ($msg) {}, ['enablePresence' =&gt; true]);
+
+    // Receive-path: broadcasts from other users on the channel
+    $client-&gt;on('user_typing', fn($e) =&gt; print("{$e['userId']} is typing\n"));
+    $client-&gt;on('reaction_added', fn($e) =&gt; print("{$e['userId']} reacted {$e['emoji']}\n"));
+
+    // Send-path: enhanced actions over the live socket
+    $client-&gt;enhanced-&gt;startTyping('alice', 'room-42');
+    $client-&gt;enhanced-&gt;addReaction('msg-1', 'room-42', ':thumbsup:', 'alice', 'Alice');
+});
+
+Loop::get()-&gt;run();</code></pre>
+                </div>
+
+                <h3 class="section-subtitle">Threads</h3>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">php</span>
+                        <button class="code-copy" onclick="copyCode(this)">
+                            <i class="fas fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <pre><code class="language-php">$client-&gt;on('thread_reply', fn($e) =&gt; print("New reply\n"));
+
+$client-&gt;enhanced-&gt;threadReply('room-42', 'msg-1', 'Replying in the thread', 'alice', 'Alice');
+
+// Query methods return ReactPHP promises
+$client-&gt;enhanced-&gt;getThread('thread-1')-&gt;then(fn($thread) =&gt; var_dump($thread));</code></pre>
+                </div>
+
+                <h3 class="section-subtitle">Enhanced surface</h3>
+                <p>Each area exposes methods on <code>$client-&gt;enhanced</code>; the worker broadcasts the paired events which you handle with <code>$client-&gt;on(...)</code>. Query methods (<code>get*</code>, <code>search*</code>) return promises that resolve with the worker response.</p>
+                <ul>
+                    <li><strong>Typing</strong> &mdash; <code>startTyping</code>, <code>stopTyping</code> &rarr; <code>user_typing</code>, <code>user_stopped_typing</code></li>
+                    <li><strong>Reactions</strong> &mdash; <code>addReaction</code>, <code>removeReaction</code>, <code>getReactions</code> &rarr; <code>reaction_added</code>, <code>reaction_removed</code></li>
+                    <li><strong>Threads</strong> &mdash; <code>threadReply</code>, <code>getThread</code>, <code>subscribeThread</code>, <code>followThread</code>, <code>markThreadRead</code> &rarr; <code>thread_reply</code>, <code>thread_subscribed</code>, <code>thread_followed</code>, <code>thread_read_updated</code></li>
+                    <li><strong>Read receipts</strong> &mdash; <code>markRead</code>, <code>markAllRead</code>, <code>getUnreadCounts</code> &rarr; <code>user_read</code>, <code>unread_count_updated</code>, <code>all_marked_read</code></li>
+                    <li><strong>Messages</strong> &mdash; <code>editMessage</code>, <code>deleteMessage</code>, <code>pinMessage</code>, <code>unpinMessage</code>, <code>getPinnedMessages</code>, <code>searchMessages</code> &rarr; <code>message_edited</code>, <code>message_deleted</code>, <code>message_pinned</code>, <code>message_unpinned</code></li>
+                    <li><strong>Presence &amp; status</strong> &mdash; <code>setStatus</code>, <code>setCustomStatus</code>, <code>setDND</code>, <code>getUserPresence</code> &rarr; <code>user_status_changed</code>, <code>custom_status_updated</code>, <code>dnd_status_changed</code></li>
+                    <li><strong>Channels</strong> &mdash; <code>createChannel</code>, <code>updateChannel</code>, <code>archiveChannel</code>, <code>inviteToChannel</code>, <code>joinChannel</code>, <code>leaveChannel</code> &rarr; <code>channel_created</code>, <code>channel_updated</code>, <code>user_invited</code>, <code>user_joined_channel</code>, <code>user_left_channel</code></li>
+                    <li><strong>DMs</strong> &mdash; <code>createDM</code>, <code>sendDM</code>, <code>getDMConversations</code> &rarr; <code>dm_created</code>, <code>dm_received</code></li>
+                    <li><strong>Notifications</strong> &mdash; <code>subscribeNotifications</code>, <code>getNotifications</code>, <code>markNotificationRead</code>, <code>clearNotifications</code> &rarr; <code>notification</code>, <code>notification_read</code>, <code>notifications_cleared</code></li>
+                </ul>
+                <p>For any worker event not wrapped above, subscribe with the raw <code>$client-&gt;on('&lt;event&gt;', $handler)</code> API &mdash; all enhanced broadcasts are forwarded onto the client surface.</p>
             </section>
 
             <section id="performance" class="section">
