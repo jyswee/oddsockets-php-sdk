@@ -20,3 +20,25 @@ OK - cross-client round-trip verified
 
 --------------------------------------------------------------------
 Exit status: 0 (alice received bob's nonce-tagged message via the worker)
+
+
+OddSockets PHP SDK - enhanced-events receive-path proof
+Captured: 2026-07-23T10:59:53Z
+Command:  docker run --rm -e ODDSOCKETS_API_KEY=ak_... --entrypoint php oddsockets-php-demo enhanced-regress.php
+Transport: genuine Socket.IO (Engine.IO v4) over WebSocket - no mocks, no local echo
+--------------------------------------------------------------------
+
+[connect] connecting both clients...
+[alice] worker [instance]
+[bob]   worker [instance]
+[connect] alice = connected, bob = connected
+[both] subscribed to enh-95596a8f6b
+[bob] enhanced->startTyping(bob) ...
+[bob] published messageId=45ddf6ed-57aa-48e7-99af-79dbe1d80547, enhanced->addReaction :thumbsup: ...
+[alice] received 'user_typing' from bob (channel enh-95596a8f6b) - broadcast round-trip.
+[alice] received 'reaction_added' (:thumbsup:) from bob - broadcast round-trip.
+
+OK - enhanced broadcast receive-path verified (user_typing + reaction_added)
+
+--------------------------------------------------------------------
+Exit status: 0 (both enhanced broadcasts reached alice through the worker)

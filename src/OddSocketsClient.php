@@ -49,6 +49,13 @@ class OddSocketsClient implements EventEmitterInterface
     private Browser $httpClient;
     private ?Deferred $pendingConnect = null;
 
+    /**
+     * Enhanced features (Slack-like events: reactions, threads, presence, DMs,
+     * notifications, search). Actions travel to the worker over Socket.IO;
+     * inbound broadcasts surface on this client's event surface.
+     */
+    public EnhancedFeatures $enhanced;
+
     public function __construct(OddSocketsConfig $config, ?LoopInterface $loop = null)
     {
         $this->config = $config;
@@ -60,6 +67,7 @@ class OddSocketsClient implements EventEmitterInterface
         // never tick under Loop::run()).
         $this->httpClient = (new Browser($this->loop))
             ->withTimeout($config->getTimeout());
+        $this->enhanced = new EnhancedFeatures($this);
 
         // Auto-connect by default
         if ($config->isAutoConnect()) {
@@ -612,6 +620,23 @@ class OddSocketsClient implements EventEmitterInterface
         // JavaScript SDK's argument shape.
         $args = [$event, empty($payload) ? new \stdClass() : $payload];
         $this->socket->send('42' . json_encode($args));
+    }
+
+    /**
+     * Send an enhanced-feature action event to the worker over Socket.IO.
+     *
+     * Enhanced actions (reactions, typing, threads, DMs, pins, ...) must travel
+     * to the worker, not the local EventEmitter. This guards on the live socket
+     * and encodes a proper Socket.IO EVENT frame, mirroring socket.emit() in the
+     * JavaScript SDK. Inbound responses/broadcasts still surface on the client
+     * event surface via dispatchEvent().
+     */
+    public function emitToWorker(string $event, array $payload = []): void
+    {
+        if (!$this->isConnected()) {
+            return;
+        }
+        $this->sendEvent($event, $payload);
     }
 
     /**

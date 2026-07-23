@@ -55,7 +55,7 @@ class EnhancedFeatures
 
         $this->client->once('thread_reply_success', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('thread_reply', $params);
+        $this->client->emitToWorker('thread_reply', $params);
 
         return $deferred->promise();
     }
@@ -80,7 +80,7 @@ class EnhancedFeatures
 
         $this->client->once('thread_data', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_thread', ['threadId' => $threadId]);
+        $this->client->emitToWorker('get_thread', ['threadId' => $threadId]);
 
         return $deferred->promise();
     }
@@ -105,7 +105,7 @@ class EnhancedFeatures
 
         $this->client->once('thread_subscribed', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('subscribe_thread', ['threadId' => $threadId, 'userId' => $userId]);
+        $this->client->emitToWorker('subscribe_thread', ['threadId' => $threadId, 'userId' => $userId]);
 
         return $deferred->promise();
     }
@@ -113,19 +113,19 @@ class EnhancedFeatures
     public function markThreadRead(string $threadId, string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('mark_thread_read', ['threadId' => $threadId, 'userId' => $userId]);
+        $this->client->emitToWorker('mark_thread_read', ['threadId' => $threadId, 'userId' => $userId]);
     }
 
     public function followThread(string $threadId, string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('follow_thread', ['threadId' => $threadId, 'userId' => $userId]);
+        $this->client->emitToWorker('follow_thread', ['threadId' => $threadId, 'userId' => $userId]);
     }
 
     public function unfollowThread(string $threadId, string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('unfollow_thread', ['threadId' => $threadId, 'userId' => $userId]);
+        $this->client->emitToWorker('unfollow_thread', ['threadId' => $threadId, 'userId' => $userId]);
     }
 
     // MARK: - Reaction Events
@@ -139,7 +139,7 @@ class EnhancedFeatures
     ): void {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('add_reaction', [
+        $this->client->emitToWorker('add_reaction', [
             'messageId' => $messageId,
             'channel' => $channel,
             'emoji' => $emoji,
@@ -156,7 +156,7 @@ class EnhancedFeatures
     ): void {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('remove_reaction', [
+        $this->client->emitToWorker('remove_reaction', [
             'messageId' => $messageId,
             'channel' => $channel,
             'emoji' => $emoji,
@@ -184,7 +184,7 @@ class EnhancedFeatures
 
         $this->client->once('message_reactions', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_reactions', ['messageId' => $messageId]);
+        $this->client->emitToWorker('get_reactions', ['messageId' => $messageId]);
 
         return $deferred->promise();
     }
@@ -199,7 +199,7 @@ class EnhancedFeatures
     ): void {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('mark_read', [
+        $this->client->emitToWorker('mark_read', [
             'messageId' => $messageId,
             'channel' => $channel,
             'userId' => $userId,
@@ -227,7 +227,7 @@ class EnhancedFeatures
 
         $this->client->once('unread_counts', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_unread_counts', ['userId' => $userId, 'channels' => $channels]);
+        $this->client->emitToWorker('get_unread_counts', ['userId' => $userId, 'channels' => $channels]);
 
         return $deferred->promise();
     }
@@ -235,7 +235,7 @@ class EnhancedFeatures
     public function markAllRead(string $channel, string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('mark_all_read', ['channel' => $channel, 'userId' => $userId]);
+        $this->client->emitToWorker('mark_all_read', ['channel' => $channel, 'userId' => $userId]);
     }
 
     // MARK: - Channel Events
@@ -276,7 +276,7 @@ class EnhancedFeatures
 
         $this->client->once('channel_create_success', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('create_channel', $params);
+        $this->client->emitToWorker('create_channel', $params);
 
         return $deferred->promise();
     }
@@ -285,7 +285,7 @@ class EnhancedFeatures
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('update_channel', [
+        $this->client->emitToWorker('update_channel', [
             'channelId' => $channelId,
             'updates' => $updates,
             'userId' => $userId
@@ -295,7 +295,7 @@ class EnhancedFeatures
     public function archiveChannel(string $channelId, string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('archive_channel', ['channelId' => $channelId, 'userId' => $userId]);
+        $this->client->emitToWorker('archive_channel', ['channelId' => $channelId, 'userId' => $userId]);
     }
 
     public function inviteToChannel(
@@ -306,7 +306,7 @@ class EnhancedFeatures
     ): void {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('invite_to_channel', [
+        $this->client->emitToWorker('invite_to_channel', [
             'channelId' => $channelId,
             'invitedUserId' => $invitedUserId,
             'invitedUserName' => $invitedUserName,
@@ -318,7 +318,7 @@ class EnhancedFeatures
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('remove_from_channel', [
+        $this->client->emitToWorker('remove_from_channel', [
             'channelId' => $channelId,
             'removedUserId' => $removedUserId,
             'removedBy' => $removedBy
@@ -329,7 +329,7 @@ class EnhancedFeatures
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('join_channel', [
+        $this->client->emitToWorker('join_channel', [
             'channelId' => $channelId,
             'userId' => $userId,
             'userName' => $userName
@@ -339,7 +339,7 @@ class EnhancedFeatures
     public function leaveChannel(string $channelId, string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('leave_channel', ['channelId' => $channelId, 'userId' => $userId]);
+        $this->client->emitToWorker('leave_channel', ['channelId' => $channelId, 'userId' => $userId]);
     }
 
     public function getChannelMembers(string $channelId): Promise
@@ -362,7 +362,7 @@ class EnhancedFeatures
 
         $this->client->once('channel_members', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_channel_members', ['channelId' => $channelId]);
+        $this->client->emitToWorker('get_channel_members', ['channelId' => $channelId]);
 
         return $deferred->promise();
     }
@@ -389,7 +389,7 @@ class EnhancedFeatures
 
         $this->client->once('dm_create_success', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('create_dm', ['userIds' => $userIds, 'type' => $type]);
+        $this->client->emitToWorker('create_dm', ['userIds' => $userIds, 'type' => $type]);
 
         return $deferred->promise();
     }
@@ -402,7 +402,7 @@ class EnhancedFeatures
     ): void {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('send_dm', [
+        $this->client->emitToWorker('send_dm', [
             'conversationId' => $conversationId,
             'message' => $message,
             'userId' => $userId,
@@ -430,7 +430,7 @@ class EnhancedFeatures
 
         $this->client->once('dm_conversations', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_dm_conversations', [
+        $this->client->emitToWorker('get_dm_conversations', [
             'userId' => $userId,
             'includeArchived' => $includeArchived
         ]);
@@ -443,14 +443,14 @@ class EnhancedFeatures
     public function subscribeNotifications(string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('subscribe_notifications', ['userId' => $userId]);
+        $this->client->emitToWorker('subscribe_notifications', ['userId' => $userId]);
     }
 
     public function markNotificationRead(string $notificationId, string $userId): void
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('mark_notification_read', [
+        $this->client->emitToWorker('mark_notification_read', [
             'notificationId' => $notificationId,
             'userId' => $userId
         ]);
@@ -459,13 +459,13 @@ class EnhancedFeatures
     public function markAllNotificationsRead(string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('mark_all_notifications_read', ['userId' => $userId]);
+        $this->client->emitToWorker('mark_all_notifications_read', ['userId' => $userId]);
     }
 
     public function clearNotifications(string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('clear_notifications', ['userId' => $userId]);
+        $this->client->emitToWorker('clear_notifications', ['userId' => $userId]);
     }
 
     public function getNotifications(string $userId, int $limit, ?string $status = null): Promise
@@ -493,7 +493,7 @@ class EnhancedFeatures
 
         $this->client->once('notifications_data', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_notifications', $params);
+        $this->client->emitToWorker('get_notifications', $params);
 
         return $deferred->promise();
     }
@@ -503,7 +503,7 @@ class EnhancedFeatures
     public function setStatus(string $userId, string $status): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('set_status', ['userId' => $userId, 'status' => $status]);
+        $this->client->emitToWorker('set_status', ['userId' => $userId, 'status' => $status]);
     }
 
     public function setCustomStatus(
@@ -519,13 +519,13 @@ class EnhancedFeatures
             $params['expiresAt'] = $expiresAt;
         }
         
-        $this->client->emit('set_custom_status', $params);
+        $this->client->emitToWorker('set_custom_status', $params);
     }
 
     public function clearCustomStatus(string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('clear_custom_status', ['userId' => $userId]);
+        $this->client->emitToWorker('clear_custom_status', ['userId' => $userId]);
     }
 
     public function setDND(string $userId, ?string $until = null): void
@@ -537,25 +537,25 @@ class EnhancedFeatures
             $params['until'] = $until;
         }
         
-        $this->client->emit('set_dnd', $params);
+        $this->client->emitToWorker('set_dnd', $params);
     }
 
     public function clearDND(string $userId): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('clear_dnd', ['userId' => $userId]);
+        $this->client->emitToWorker('clear_dnd', ['userId' => $userId]);
     }
 
     public function startTyping(string $userId, string $channel): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('start_typing', ['userId' => $userId, 'channel' => $channel]);
+        $this->client->emitToWorker('start_typing', ['userId' => $userId, 'channel' => $channel]);
     }
 
     public function stopTyping(string $userId, string $channel): void
     {
         if (!$this->client->isConnected()) return;
-        $this->client->emit('stop_typing', ['userId' => $userId, 'channel' => $channel]);
+        $this->client->emitToWorker('stop_typing', ['userId' => $userId, 'channel' => $channel]);
     }
 
     public function getUserPresence(array $userIds): Promise
@@ -578,7 +578,7 @@ class EnhancedFeatures
 
         $this->client->once('user_presence_data', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_user_presence', ['userIds' => $userIds]);
+        $this->client->emitToWorker('get_user_presence', ['userIds' => $userIds]);
 
         return $deferred->promise();
     }
@@ -593,7 +593,7 @@ class EnhancedFeatures
     ): void {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('edit_message', [
+        $this->client->emitToWorker('edit_message', [
             'messageId' => $messageId,
             'channel' => $channel,
             'newContent' => $newContent,
@@ -605,7 +605,7 @@ class EnhancedFeatures
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('delete_message', [
+        $this->client->emitToWorker('delete_message', [
             'messageId' => $messageId,
             'channel' => $channel,
             'userId' => $userId
@@ -616,7 +616,7 @@ class EnhancedFeatures
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('pin_message', [
+        $this->client->emitToWorker('pin_message', [
             'messageId' => $messageId,
             'channel' => $channel,
             'userId' => $userId
@@ -627,7 +627,7 @@ class EnhancedFeatures
     {
         if (!$this->client->isConnected()) return;
         
-        $this->client->emit('unpin_message', [
+        $this->client->emitToWorker('unpin_message', [
             'messageId' => $messageId,
             'channel' => $channel,
             'userId' => $userId
@@ -654,7 +654,7 @@ class EnhancedFeatures
 
         $this->client->once('pinned_messages', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('get_pinned_messages', ['channel' => $channel]);
+        $this->client->emitToWorker('get_pinned_messages', ['channel' => $channel]);
 
         return $deferred->promise();
     }
@@ -681,7 +681,7 @@ class EnhancedFeatures
 
         $this->client->once('search_results', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('search_messages', [
+        $this->client->emitToWorker('search_messages', [
             'query' => $query,
             'userId' => $userId,
             'limit' => $limit
@@ -710,7 +710,7 @@ class EnhancedFeatures
 
         $this->client->once('filter_results', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('filter_messages', $filters);
+        $this->client->emitToWorker('filter_messages', $filters);
 
         return $deferred->promise();
     }
@@ -735,7 +735,7 @@ class EnhancedFeatures
 
         $this->client->once('channel_search_results', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('search_in_channel', [
+        $this->client->emitToWorker('search_in_channel', [
             'channel' => $channel,
             'query' => $query,
             'limit' => $limit
@@ -769,7 +769,7 @@ class EnhancedFeatures
 
         $this->client->once('user_search_results', $successHandler);
         $this->client->once('error', $errorHandler);
-        $this->client->emit('search_by_user', $params);
+        $this->client->emitToWorker('search_by_user', $params);
 
         return $deferred->promise();
     }
