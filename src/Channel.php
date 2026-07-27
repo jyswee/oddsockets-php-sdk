@@ -234,7 +234,12 @@ class Channel implements EventEmitterInterface
         $deferred = new Deferred();
 
         $onHistory = function (array $data) use ($deferred, &$onHistory, &$onError) {
-            if ($data['channel'] === $this->name) {
+            // Only resolve on the explicit get_history RESPONSE (query:true). The
+            // worker also emits 'history' as a fire-and-forget on-join snapshot
+            // (capped at ~10 local messages, no query flag); without this guard
+            // getHistory() could resolve with that snapshot instead of the
+            // requested count from the shared store. BUG-2026-0727-0012.
+            if ($data['channel'] === $this->name && ($data['query'] ?? false) === true) {
                 $this->client->removeListener('history', $onHistory);
                 $this->client->removeListener('error', $onError);
                 $deferred->resolve($data['messages'] ?? []);
