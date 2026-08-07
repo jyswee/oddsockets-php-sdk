@@ -22,8 +22,11 @@ $client->on('error', function ($error) {
 // Example 2: Advanced configuration
 echo "\n=== Example 2: Advanced Configuration ===\n";
 
+// managerUrl is optional: leave it out for the public endpoint, or set it to
+// point the SDK at a self-hosted or QA manager. It is used exactly as given.
 $config = OddSocketsConfig::builder('ak_your_api_key_here')
     ->userId('user123')
+    ->managerUrl('https://connect.oddsockets.tyga.network')
     ->autoConnect(false)
     ->reconnectAttempts(3)
     ->timeout(15)

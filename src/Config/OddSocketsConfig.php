@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OddSockets\Config;
 
 use InvalidArgumentException;
+use OddSockets\ManagerDiscovery;
 
 /**
  * Configuration class for OddSockets client.
@@ -16,7 +17,7 @@ final class OddSocketsConfig
 {
     public function __construct(
         private readonly string $apiKey,
-        private readonly string $managerUrl = 'https://connect.oddsockets.tyga.network',
+        private readonly ?string $managerUrl = null,
         private readonly ?string $userId = null,
         private readonly bool $autoConnect = true,
         private readonly int $reconnectAttempts = 5,
@@ -31,7 +32,13 @@ final class OddSocketsConfig
         return $this->apiKey;
     }
 
-    public function getManagerUrl(): string
+    /**
+     * The manager URL as configured, or null when the caller has not set one.
+     *
+     * Resolution of the fallbacks is left to ManagerDiscovery so that "not
+     * configured" stays distinguishable from "deliberately set to production".
+     */
+    public function getManagerUrl(): ?string
     {
         return $this->managerUrl;
     }
@@ -92,12 +99,8 @@ final class OddSocketsConfig
             throw new InvalidArgumentException('Invalid API key format');
         }
 
-        if (empty($this->managerUrl)) {
-            throw new InvalidArgumentException('Manager URL is required');
-        }
-
-        if (!filter_var($this->managerUrl, FILTER_VALIDATE_URL)) {
-            throw new InvalidArgumentException('Invalid manager URL format');
+        if ($this->managerUrl !== null) {
+            ManagerDiscovery::normalizeUrl($this->managerUrl);
         }
 
         if ($this->reconnectAttempts < 0) {

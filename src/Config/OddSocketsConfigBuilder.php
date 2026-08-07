@@ -13,7 +13,7 @@ namespace OddSockets\Config;
 final class OddSocketsConfigBuilder
 {
     private string $apiKey = '';
-    private string $managerUrl = 'https://connect.oddsockets.tyga.network';
+    private ?string $managerUrl = null;
     private ?string $userId = null;
     private bool $autoConnect = true;
     private int $reconnectAttempts = 5;
@@ -30,7 +30,8 @@ final class OddSocketsConfigBuilder
     }
 
     /**
-     * Sets the manager URL.
+     * Sets the manager URL. This value is used verbatim: no other endpoint is
+     * ever tried on its behalf.
      */
     public function managerUrl(string $managerUrl): self
     {
@@ -99,7 +100,7 @@ final class OddSocketsConfigBuilder
      */
     public function production(): self
     {
-        $this->managerUrl = 'https://connect.oddsockets.tyga.network';
+        $this->managerUrl = \OddSockets\ManagerDiscovery::DEFAULT_MANAGER_URL;
         $this->timeout = 10;
         $this->heartbeatInterval = 30;
         return $this;

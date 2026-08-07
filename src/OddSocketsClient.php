@@ -20,6 +20,7 @@ use React\Stream\WritableResourceStream;
 use Ratchet\Client\WebSocket;
 use Ratchet\Client\Connector as WsConnector;
 use React\Http\Browser;
+use React\Http\Message\ResponseException;
 use Psr\Http\Message\ResponseInterface;
 
 /**
@@ -61,7 +62,7 @@ class OddSocketsClient implements EventEmitterInterface
         $this->config = $config;
         $this->loop = $loop ?? Loop::get();
         $this->clientIdentifier = $this->generateClientIdentifier();
-        $this->managerDiscovery = new ManagerDiscovery();
+        $this->managerDiscovery = new ManagerDiscovery($config->getManagerUrl());
         // Use the ReactPHP HTTP client so the manager request runs on the same
         // event loop as the WebSocket transport (a Guzzle async promise would
         // never tick under Loop::run()).
@@ -255,8 +256,10 @@ class OddSocketsClient implements EventEmitterInterface
         $deferred = new Deferred();
 
         try {
-            // Discover the optimal manager URL automatically
-            $managerUrl = $this->managerDiscovery->discoverManagerUrl($this->config->getApiKey());
+            // Resolve the manager the caller asked for. Whatever comes back is
+            // the only endpoint contacted - a wrong or unreachable manager must
+            // surface, not be papered over with the production default.
+            $managerUrl = $this->managerDiscovery->discoverManagerUrl();
 
             $query = http_build_query([
                 'apiKey' => $this->config->getApiKey(),
@@ -284,18 +287,28 @@ class OddSocketsClient implements EventEmitterInterface
                     'workerUrl' => $this->workerUrl,
                     'session' => $this->sessionInfo,
                     'clientIdentifier' => $this->clientIdentifier,
-                    'managerUrl' => $managerUrl // Include discovered manager URL for debugging
+                    'managerUrl' => $managerUrl // The manager actually used, for debugging
                 ]]);
 
                 $deferred->resolve(null);
             })->otherwise(function (\Throwable $error) use ($deferred) {
-                $message = $error->getMessage();
-                if (strpos($message, 'refused') !== false ||
-                    strpos($message, 'resolve') !== false ||
-                    strpos($message, 'name resolution') !== false) {
-                    $deferred->reject(new ConnectionException('Manager is offline. Cannot assign worker without session stickiness.'));
+                // ResponseException is the only rejection carrying an actual HTTP
+                // response, so its absence means the request never reached the
+                // manager (DNS, TCP, TLS or timeout). Classifying on the type
+                // instead of the wording keeps this stable across transport
+                // versions.
+                if ($error instanceof ResponseException) {
+                    $deferred->reject(new ConnectionException(
+                        'Failed to get worker assignment: ' . $error->getMessage(),
+                        0,
+                        $error
+                    ));
                 } else {
-                    $deferred->reject(new ConnectionException('Failed to get worker assignment: ' . $message));
+                    $deferred->reject(new ConnectionException(
+                        'Manager is offline. Cannot assign worker without session stickiness.',
+                        0,
+                        $error instanceof \Exception ? $error : null
+                    ));
                 }
             });
 

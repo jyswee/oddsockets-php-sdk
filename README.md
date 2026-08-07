@@ -30,6 +30,30 @@ Loop::get()->run();
 The SDK is built on [ReactPHP](https://reactphp.org/) — `connect()`, `subscribe()`
 and `publish()` return promises and run on the event loop.
 
+## Manager URL
+
+The client asks a manager for a worker. Point it at a self-hosted or QA manager
+with `managerUrl`:
+
+```php
+$client = OddSockets::create([
+    'apiKey' => 'YOUR_API_KEY',
+    'managerUrl' => 'https://manager.internal.example',
+]);
+```
+
+Resolution order, highest first:
+
+1. `managerUrl` in the config array / `OddSocketsConfigBuilder::managerUrl()`
+2. the `ODDSOCKETS_MANAGER_URL` environment variable
+3. the public endpoint `https://connect.oddsockets.tyga.network`
+
+Whatever resolves is used verbatim. If it is unreachable the connection fails
+with that error — the SDK never quietly falls back to another manager, because
+that would send a QA or self-hosted deployment to production unnoticed. A value
+that is not an absolute `http://` or `https://` URL throws an
+`InvalidArgumentException` reading `Invalid managerUrl: <value>`.
+
 ## Enhanced Features
 
 Beyond core pub/sub, OddSockets ships a Slack-like **enhanced surface** — reactions,
