@@ -54,6 +54,45 @@ that would send a QA or self-hosted deployment to production unnoticed. A value
 that is not an absolute `http://` or `https://` URL throws an
 `InvalidArgumentException` reading `Invalid managerUrl: <value>`.
 
+## Token auth for game clients (`tokenProvider`)
+
+Game and app clients should never ship a static API key. Instead, mint a
+short-lived realtime token from your own backend and hand it to the SDK through a
+`tokenProvider` callback. The client resolves a **fresh** token before every
+(re)connect, presents it on the manager/worker handshake in place of an API key,
+and silently refreshes it ahead of expiry.
+
+The callback returns a token string, an array shaped like the mint response
+(`['token' => ..., 'expiresAt' => ..., 'exp' => ...]`), or a React promise
+resolving to either — so it can run its own async HTTP on the event loop:
+
+```php
+use OddSockets\Config\OddSocketsConfig;
+use OddSockets\OddSocketsClient;
+use React\Http\Browser;
+
+$http = new Browser();
+
+$config = OddSocketsConfig::builderWithTokenProvider(function () use ($http) {
+    // Your backend exchanges the player's session for a realtime token.
+    return $http->post('https://your-backend.example/realtime-token')
+        ->then(fn ($resp) => json_decode((string) $resp->getBody(), true));
+    // -> ['token' => 'eyJ...', 'expiresAt' => '2026-01-01T00:00:00Z']
+})
+    ->userId('player-42')
+    ->build();
+
+$client = new OddSocketsClient($config);
+
+// Fired after each silent pre-expiry refresh.
+$client->on('token_refreshed', function (array $info) {
+    // $info['expiresAt'] — epoch ms of the new token
+});
+```
+
+No `apiKey` is required when a `tokenProvider` is set. Tune how early the token
+refreshes with `->tokenRefreshLeadMs(120000)` (default two minutes).
+
 ## Enhanced Features
 
 Beyond core pub/sub, OddSockets ships a Slack-like **enhanced surface** — reactions,

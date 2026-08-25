@@ -19,6 +19,8 @@ final class OddSocketsConfigBuilder
     private int $reconnectAttempts = 5;
     private int $heartbeatInterval = 30;
     private int $timeout = 10;
+    private $tokenProvider = null;
+    private int $tokenRefreshLeadMs = 120000;
 
     /**
      * Sets the API key.
@@ -26,6 +28,28 @@ final class OddSocketsConfigBuilder
     public function apiKey(string $apiKey): self
     {
         $this->apiKey = $apiKey;
+        return $this;
+    }
+
+    /**
+     * Sets the async token provider for game-client (minted-token) auth. When
+     * set, the client resolves a fresh token from this callback before every
+     * (re)connect instead of presenting a static API key (FEAT-2026-0824-0040).
+     * The callback returns a token string, an array (['token' => ...,
+     * 'expiresAt' => ..., 'exp' => ...]), or a React promise resolving to either.
+     */
+    public function tokenProvider(callable $tokenProvider): self
+    {
+        $this->tokenProvider = $tokenProvider;
+        return $this;
+    }
+
+    /**
+     * Sets how long before a minted token's expiry to refresh it (milliseconds).
+     */
+    public function tokenRefreshLeadMs(int $milliseconds): self
+    {
+        $this->tokenRefreshLeadMs = $milliseconds;
         return $this;
     }
 
@@ -120,7 +144,9 @@ final class OddSocketsConfigBuilder
             autoConnect: $this->autoConnect,
             reconnectAttempts: $this->reconnectAttempts,
             heartbeatInterval: $this->heartbeatInterval,
-            timeout: $this->timeout
+            timeout: $this->timeout,
+            tokenProvider: $this->tokenProvider,
+            tokenRefreshLeadMs: $this->tokenRefreshLeadMs
         );
     }
 }

@@ -50,6 +50,12 @@ class OddSocketsClient implements EventEmitterInterface
     private Browser $httpClient;
     private ?Deferred $pendingConnect = null;
 
+    // v1 minted-token auth state (FEAT-2026-0824-0040). Populated only when the
+    // config carries a tokenProvider instead of a static API key.
+    private ?string $currentToken = null;
+    private ?int $tokenExpiresAt = null; // epoch ms
+    private ?\React\EventLoop\TimerInterface $tokenRefreshTimer = null;
+
     /**
      * Enhanced features (Slack-like events: reactions, threads, presence, DMs,
      * notifications, search). Actions travel to the worker over Socket.IO;
@@ -91,8 +97,15 @@ class OddSocketsClient implements EventEmitterInterface
 
         $deferred = new Deferred();
 
-        // Step 1: Get worker assignment from manager
-        $this->getWorkerAssignment()
+        // Step 0: In token mode, fetch a FRESH minted token before anything else.
+        // On a reconnect this is also the refresh path - a token that expired
+        // during an outage is never replayed, because the provider is always
+        // asked again here (FEAT-2026-0824-0040, "refresh on reconnect").
+        $this->resolveToken()
+            ->then(function () {
+                // Step 1: Get worker assignment from manager
+                return $this->getWorkerAssignment();
+            })
             ->then(function () {
                 // Step 2: Connect to assigned worker
                 return $this->connectToWorker();
@@ -127,6 +140,11 @@ class OddSocketsClient implements EventEmitterInterface
     public function disconnect(): void
     {
         $this->connectionState = 'disconnected';
+
+        if ($this->tokenRefreshTimer !== null) {
+            $this->loop->cancelTimer($this->tokenRefreshTimer);
+            $this->tokenRefreshTimer = null;
+        }
 
         if ($this->socket) {
             $this->socket->close();
@@ -249,6 +267,154 @@ class OddSocketsClient implements EventEmitterInterface
     }
 
     /**
+     * Internal: True when this client authenticates with minted tokens (a
+     * tokenProvider callback) rather than a static API key.
+     */
+    private function isTokenMode(): bool
+    {
+        return $this->config->getTokenProvider() !== null;
+    }
+
+    /**
+     * Internal: Fetch a fresh minted token from the configured tokenProvider,
+     * cache it with its expiry, and arm the pre-expiry refresh timer. Called
+     * before every (re)connect and by that timer (FEAT-2026-0824-0040).
+     *
+     * The provider may return the token string directly, or an array shaped like
+     * the control-plane mint response (['token' => ..., 'expiresAt' => ISO|epoch,
+     * 'exp' => epochSeconds]); it may also return a React promise resolving to
+     * either shape. Resolves to null (a no-op) when not in token mode.
+     */
+    private function resolveToken(): Promise
+    {
+        $provider = $this->config->getTokenProvider();
+        if ($provider === null) {
+            return \React\Promise\resolve(null);
+        }
+
+        // resolve() adopts a returned promise, or wraps a plain value.
+        return \React\Promise\resolve($provider())->then(function ($result) {
+            $token = null;
+            $expiresAtMs = null;
+
+            if (is_string($result)) {
+                $token = $result;
+            } elseif (is_array($result) && isset($result['token']) && is_string($result['token'])) {
+                $token = $result['token'];
+                if (isset($result['expiresAt']) && $result['expiresAt'] !== null) {
+                    $expiresAt = $result['expiresAt'];
+                    if (is_int($expiresAt) || is_float($expiresAt)) {
+                        // Heuristic: values below 1e12 are epoch SECONDS, above millis.
+                        $expiresAtMs = $expiresAt < 1e12
+                            ? (int) ($expiresAt * 1000)
+                            : (int) $expiresAt;
+                    } else {
+                        $parsed = strtotime((string) $expiresAt); // ISO-8601
+                        $expiresAtMs = $parsed !== false ? $parsed * 1000 : null;
+                    }
+                } elseif (isset($result['exp']) && (is_int($result['exp']) || is_float($result['exp']))) {
+                    $expiresAtMs = (int) ($result['exp'] * 1000); // JWT exp is epoch seconds
+                }
+            }
+
+            if (!is_string($token) || $token === '') {
+                throw new AuthenticationException(
+                    'tokenProvider must return a token string or an array with a token key'
+                );
+            }
+
+            // No explicit expiry supplied - read `exp` out of the JWT so a refresh
+            // can still be timed rather than letting the token lapse unnoticed.
+            if ($expiresAtMs === null) {
+                $expiresAtMs = $this->expiryFromJwt($token);
+            }
+
+            $this->currentToken = $token;
+            $this->tokenExpiresAt = $expiresAtMs;
+            $this->scheduleTokenRefresh();
+            return $token;
+        });
+    }
+
+    /**
+     * Internal: Best-effort read of the `exp` claim (epoch seconds) from a JWT
+     * WITHOUT verifying it - the worker is the verifier; the client only needs
+     * exp to time its refresh. Returns epoch ms, or null if unreadable.
+     */
+    private function expiryFromJwt(string $token): ?int
+    {
+        $parts = explode('.', $token);
+        if (count($parts) < 2) {
+            return null;
+        }
+
+        $payload = strtr($parts[1], '-_', '+/');
+        $pad = strlen($payload) % 4;
+        if ($pad > 0) {
+            $payload .= str_repeat('=', 4 - $pad);
+        }
+
+        $json = base64_decode($payload, true);
+        if ($json === false) {
+            return null;
+        }
+
+        $data = json_decode($json, true);
+        if (is_array($data) && isset($data['exp']) && (is_int($data['exp']) || is_float($data['exp']))) {
+            return (int) ($data['exp'] * 1000);
+        }
+
+        return null;
+    }
+
+    /**
+     * Internal: Arm a one-shot timer to silently refresh the minted token
+     * `tokenRefreshLeadMs` before it expires (default 2 min). The refresh updates
+     * the cached token; it does NOT tear down the current connection, because the
+     * worker authenticates a token only at handshake and never re-checks a live
+     * socket - the fresh token simply needs to be ready for the next (re)connect
+     * (FEAT-2026-0824-0040).
+     */
+    private function scheduleTokenRefresh(): void
+    {
+        if ($this->tokenRefreshTimer !== null) {
+            $this->loop->cancelTimer($this->tokenRefreshTimer);
+            $this->tokenRefreshTimer = null;
+        }
+
+        if (!$this->isTokenMode() || $this->tokenExpiresAt === null) {
+            return;
+        }
+
+        $lead = $this->config->getTokenRefreshLeadMs();
+        $delayMs = max(0, $this->tokenExpiresAt - $this->nowMs() - $lead);
+
+        $this->tokenRefreshTimer = $this->loop->addTimer($delayMs / 1000, function () {
+            $this->tokenRefreshTimer = null;
+            $this->resolveToken()
+                ->then(function () {
+                    $this->localEmit('token_refreshed', [['expiresAt' => $this->tokenExpiresAt]]);
+                })
+                ->otherwise(function (\Throwable $error) {
+                    // Surface but don't crash: the existing connection stays up on
+                    // its already-accepted token; the next reconnect retries the
+                    // provider.
+                    $this->localEmit('error', [
+                        new OddSocketsException('token refresh failed: ' . $error->getMessage()),
+                    ]);
+                });
+        });
+    }
+
+    /**
+     * Internal: Current wall-clock time in epoch milliseconds.
+     */
+    private function nowMs(): int
+    {
+        return (int) round(microtime(true) * 1000);
+    }
+
+    /**
      * Internal: Get worker assignment from manager
      */
     private function getWorkerAssignment(): Promise
@@ -261,11 +427,18 @@ class OddSocketsClient implements EventEmitterInterface
             // surface, not be papered over with the production default.
             $managerUrl = $this->managerDiscovery->discoverManagerUrl();
 
-            $query = http_build_query([
-                'apiKey' => $this->config->getApiKey(),
+            $params = [
                 'userId' => $this->config->getUserId() ?? $this->clientIdentifier,
                 'clientIdentifier' => $this->clientIdentifier,
-            ]);
+            ];
+            if ($this->isTokenMode()) {
+                // Token clients carry no API key - the manager picks a worker
+                // from the minted token instead (FEAT-2026-0824-0040/0041).
+                $params['token'] = $this->currentToken;
+            } else {
+                $params['apiKey'] = $this->config->getApiKey();
+            }
+            $query = http_build_query($params);
             $url = $managerUrl . '/api/cluster/select-worker?' . $query;
 
             $this->httpClient->get($url, [
@@ -433,10 +606,14 @@ class OddSocketsClient implements EventEmitterInterface
         // CONNECT packet carrying our auth (apiKey/userId land in
         // socket.handshake.auth on the worker).
         if ($engineType === '0') {
-            $auth = [
-                'apiKey' => $this->config->getApiKey(),
-                'userId' => $this->config->getUserId() ?? $this->clientIdentifier,
-            ];
+            $userId = $this->config->getUserId() ?? $this->clientIdentifier;
+            // Token clients present the minted token; the worker's v1 handshake
+            // branch reads socket.handshake.auth.token (FEAT-2026-0824-0039).
+            if ($this->isTokenMode() && $this->currentToken !== null) {
+                $auth = ['token' => $this->currentToken, 'userId' => $userId];
+            } else {
+                $auth = ['apiKey' => $this->config->getApiKey(), 'userId' => $userId];
+            }
             $this->socket->send('40' . json_encode($auth));
             return;
         }
