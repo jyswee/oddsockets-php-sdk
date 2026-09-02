@@ -697,6 +697,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a href="#challenges" class="nav-link">
+                            <i class="fas fa-trophy nav-icon"></i>
+                            Challenges &amp; Leaderboards
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a href="#performance" class="nav-link">
                             <i class="fas fa-chart-line nav-icon"></i>
                             Performance
@@ -1074,6 +1080,68 @@ $client-&gt;enhanced-&gt;getThread('thread-1')-&gt;then(fn($thread) =&gt; var_du
                     <li><strong>Notifications</strong> &mdash; <code>subscribeNotifications</code>, <code>getNotifications</code>, <code>markNotificationRead</code>, <code>clearNotifications</code> &rarr; <code>notification</code>, <code>notification_read</code>, <code>notifications_cleared</code></li>
                 </ul>
                 <p>For any worker event not wrapped above, subscribe with the raw <code>$client-&gt;on('&lt;event&gt;', $handler)</code> API &mdash; all enhanced broadcasts are forwarded onto the client surface.</p>
+            </section>
+
+            <section id="challenges" class="section">
+                <h2 class="section-title">
+                    <i class="fas fa-trophy"></i>
+                    Challenges &amp; Leaderboards
+                </h2>
+
+                <p>Challenges, leaderboards and achievements build on the same live socket. The send side lives on the <strong>enhanced surface</strong> (<code>$client-&gt;enhanced-&gt;*</code>); request/query methods return a ReactPHP <code>PromiseInterface</code> that resolves with the worker's reply (<code>-&gt;then(...)</code>), while progress and achievement calls are fire-and-forget. Inbound broadcasts arrive on the client event surface &mdash; subscribe with the client's normal <code>$client-&gt;on('&lt;event&gt;', $handler)</code>.</p>
+
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="code-lang">php</span>
+                        <button class="code-copy" onclick="copyCode(this)">
+                            <i class="fas fa-copy"></i>
+                            Copy
+                        </button>
+                    </div>
+                    <pre><code class="language-php">$client-&gt;enhanced-&gt;createChallenge(['challengeId' =&gt; 'daily-sprint', 'metric' =&gt; 'points', 'ranked' =&gt; true]);
+
+$client-&gt;enhanced-&gt;reportProgress(['challengeId' =&gt; 'daily-sprint', 'value' =&gt; 120]);
+
+$client-&gt;enhanced-&gt;getStandings(['challengeId' =&gt; 'daily-sprint', 'limit' =&gt; 10])
+    -&gt;then(fn($board) =&gt; var_dump($board['standings'], $board['yourRank']));
+
+$client-&gt;enhanced-&gt;completeChallenge(['challengeId' =&gt; 'daily-sprint', 'outcome' =&gt; 'completed']);</code></pre>
+                </div>
+
+                <h3 class="section-subtitle">Methods</h3>
+                <p>Request/query methods return a promise that resolves with the worker ack; progress and achievement calls are fire-and-forget (no ack).</p>
+                <ul>
+                    <li><strong><code>createChallenge</code></strong> &mdash; create a challenge/leaderboard &rarr; ack <code>challenge_create_success</code></li>
+                    <li><strong><code>reportProgress</code></strong> &mdash; fire-and-forget metric progress (no ack)</li>
+                    <li><strong><code>completeChallenge</code></strong> &mdash; finalize with an <code>outcome</code> &rarr; ack <code>challenge_complete_success</code></li>
+                    <li><strong><code>unlockAchievement</code></strong> &mdash; fire-and-forget; pass <code>percentComplete</code> (0&ndash;100) (no ack)</li>
+                    <li><strong><code>getStandings</code></strong> &mdash; request top-N + caller rank &rarr; ack <code>challenge_standings_success</code></li>
+                    <li><strong><code>getAchievements</code></strong> &mdash; query achievement state &rarr; ack <code>achievement_state</code></li>
+                    <li><strong><code>sendChallengeInvite</code></strong> &mdash; directed invite to another user &rarr; ack <code>challenge_invite_success</code></li>
+                    <li><strong><code>replyChallengeInvite</code></strong> &mdash; accept/decline an invite &rarr; ack <code>challenge_reply_success</code></li>
+                    <li><strong><code>cancelChallengeInvite</code></strong> &mdash; cancel a sent invite &rarr; ack <code>challenge_invite_cancel_success</code></li>
+                    <li><strong><code>getChallengeInvites</code></strong> &mdash; list pending invites &rarr; ack <code>challenge_invites</code></li>
+                </ul>
+
+                <h3 class="section-subtitle">Completion outcomes</h3>
+                <p>The <code>outcome</code> passed to <code>completeChallenge</code> is one of:</p>
+                <ul>
+                    <li><code>completed</code> &mdash; win (rank 1)</li>
+                    <li><code>failed</code> &mdash; loss</li>
+                    <li><code>tied</code> &mdash; draw</li>
+                    <li><code>conceded</code> &mdash; resign / concede</li>
+                    <li><code>expired</code> &mdash; timed out</li>
+                </ul>
+
+                <h3 class="section-subtitle">Progressive achievements</h3>
+                <p><code>unlockAchievement</code> always emits the wire event <code>achievement_unlock</code>; the worker is authoritative and derives the outbound broadcast from <code>percentComplete</code>. A value below <code>100</code> broadcasts <code>achievement_progress</code> (status <code>in_progress</code>); a value of <code>100</code> or omitted broadcasts <code>achievement_unlock</code> (status <code>unlocked</code>). You never emit <code>achievement_progress</code> yourself.</p>
+
+                <h3 class="section-subtitle">Inbound events</h3>
+                <p>Subscribe with the client's normal <code>$client-&gt;on('&lt;event&gt;', $handler)</code>.</p>
+                <ul>
+                    <li><strong>Room broadcasts</strong> &mdash; <code>challenge_progress</code>, <code>leaderboard_rank_change</code>, <code>challenge_complete</code>, <code>achievement_unlock</code>, <code>achievement_progress</code></li>
+                    <li><strong>Directed (per-user)</strong> &mdash; <code>challenge_invited</code>, <code>challenge_reply_received</code>, <code>challenge_invite_cancelled</code></li>
+                </ul>
             </section>
 
             <section id="performance" class="section">
