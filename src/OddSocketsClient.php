@@ -14,6 +14,7 @@ use Evenement\EventEmitterTrait;
 use React\EventLoop\Loop;
 use React\EventLoop\LoopInterface;
 use React\Promise\Promise;
+use React\Promise\PromiseInterface;
 use React\Promise\Deferred;
 use React\Socket\Connector;
 use React\Stream\WritableResourceStream;
@@ -57,6 +58,29 @@ class OddSocketsClient implements EventEmitterInterface
     private ?\React\EventLoop\TimerInterface $tokenRefreshTimer = null;
 
     /**
+     * Enhanced-feature broadcast events the worker delivers to OTHER members of a
+     * room. These surface on this client's event surface (via dispatchEvent) so
+     * apps can subscribe with $client->on($name, $handler). The request/response
+     * acks consumed by EnhancedFeatures methods are intentionally NOT in this
+     * list. Kept in parity with the JavaScript/Python SDK registries.
+     */
+    public const ENHANCED_BROADCAST_EVENTS = [
+        'reaction_added', 'reaction_removed',
+        'user_typing', 'user_stopped_typing',
+        'user_read', 'unread_count_updated', 'all_marked_read',
+        'thread_reply', 'thread_subscribed', 'thread_followed', 'thread_unfollowed', 'thread_read_updated',
+        'message_edited', 'message_deleted', 'message_pinned', 'message_unpinned',
+        'user_status_changed', 'custom_status_updated', 'custom_status_cleared', 'dnd_status_changed', 'status_updated',
+        'file_upload_completed', 'file_upload_progress', 'file_upload_failed',
+        'dm_created', 'dm_received',
+        'notification', 'notification_read', 'all_notifications_read', 'notifications_cleared',
+        'channel_created', 'channel_updated', 'user_invited', 'user_joined_channel', 'user_left_channel', 'user_removed',
+        'challenge_progress', 'leaderboard_rank_change', 'challenge_complete',
+        'achievement_unlock', 'achievement_progress',
+        'challenge_invited', 'challenge_reply_received', 'challenge_invite_cancelled',
+    ];
+
+    /**
      * Enhanced features (Slack-like events: reactions, threads, presence, DMs,
      * notifications, search). Actions travel to the worker over Socket.IO;
      * inbound broadcasts surface on this client's event surface.
@@ -86,7 +110,7 @@ class OddSocketsClient implements EventEmitterInterface
      * Connect to the OddSockets platform
      * Handles the Manager → Worker assignment internally
      */
-    public function connect(): Promise
+    public function connect(): PromiseInterface
     {
         if ($this->connectionState === 'connecting' || $this->connectionState === 'connected') {
             return \React\Promise\resolve(null);
@@ -206,7 +230,7 @@ class OddSocketsClient implements EventEmitterInterface
     /**
      * Publish multiple messages at once
      */
-    public function publishBulk(array $messages): Promise
+    public function publishBulk(array $messages): PromiseInterface
     {
         if (!$this->isConnected()) {
             return \React\Promise\reject(new ConnectionException('Not connected to OddSockets'));
@@ -285,7 +309,7 @@ class OddSocketsClient implements EventEmitterInterface
      * 'exp' => epochSeconds]); it may also return a React promise resolving to
      * either shape. Resolves to null (a no-op) when not in token mode.
      */
-    private function resolveToken(): Promise
+    private function resolveToken(): PromiseInterface
     {
         $provider = $this->config->getTokenProvider();
         if ($provider === null) {
@@ -417,7 +441,7 @@ class OddSocketsClient implements EventEmitterInterface
     /**
      * Internal: Get worker assignment from manager
      */
-    private function getWorkerAssignment(): Promise
+    private function getWorkerAssignment(): PromiseInterface
     {
         $deferred = new Deferred();
 
@@ -500,7 +524,7 @@ class OddSocketsClient implements EventEmitterInterface
      * once the server acknowledges our Socket.IO CONNECT packet, not merely
      * when the raw WebSocket opens.
      */
-    private function connectToWorker(): Promise
+    private function connectToWorker(): PromiseInterface
     {
         if (!$this->workerUrl) {
             return \React\Promise\reject(new ConnectionException('No worker URL available'));

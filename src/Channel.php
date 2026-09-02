@@ -10,6 +10,7 @@ use OddSockets\Exception\TimeoutException;
 use Evenement\EventEmitterInterface;
 use Evenement\EventEmitterTrait;
 use React\Promise\Promise;
+use React\Promise\PromiseInterface;
 use React\Promise\Deferred;
 
 /**
@@ -44,7 +45,7 @@ class Channel implements EventEmitterInterface
      * @param array $options Subscription options
      * @return Promise<void>
      */
-    public function subscribe(callable $callback, array $options = []): Promise
+    public function subscribe(callable $callback, array $options = []): PromiseInterface
     {
         if ($this->subscribed || $this->subscribing) {
             // Add callback to existing subscription
@@ -116,7 +117,7 @@ class Channel implements EventEmitterInterface
      * 
      * @return Promise<void>
      */
-    public function unsubscribe(): Promise
+    public function unsubscribe(): PromiseInterface
     {
         if (!$this->subscribed) {
             return \React\Promise\resolve(null);
@@ -171,7 +172,7 @@ class Channel implements EventEmitterInterface
      * @param array $options Publishing options
      * @return Promise<array> Publication result
      */
-    public function publish(mixed $message, array $options = []): Promise
+    public function publish(mixed $message, array $options = []): PromiseInterface
     {
         if (!$this->client->isConnected()) {
             return \React\Promise\reject(new ChannelException('Client is not connected'));
@@ -225,7 +226,7 @@ class Channel implements EventEmitterInterface
      * @param array $options History options
      * @return Promise<array> Message history
      */
-    public function getHistory(array $options = []): Promise
+    public function getHistory(array $options = []): PromiseInterface
     {
         if (!$this->client->isConnected()) {
             return \React\Promise\reject(new ChannelException('Client is not connected'));
@@ -275,7 +276,7 @@ class Channel implements EventEmitterInterface
      * 
      * @return Promise<array> Presence information
      */
-    public function getPresence(): Promise
+    public function getPresence(): PromiseInterface
     {
         if (!$this->client->isConnected()) {
             return \React\Promise\reject(new ChannelException('Client is not connected'));
@@ -320,7 +321,7 @@ class Channel implements EventEmitterInterface
      * @param array $state User state object
      * @return Promise<void>
      */
-    public function updateState(array $state): Promise
+    public function updateState(array $state): PromiseInterface
     {
         if (!$this->client->isConnected()) {
             return \React\Promise\reject(new ChannelException('Client is not connected'));
