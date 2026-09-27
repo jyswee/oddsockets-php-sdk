@@ -26,7 +26,7 @@ use React\EventLoop\Loop;
 
 $apiKey = getenv('ODDSOCKETS_API_KEY');
 if ($apiKey === false || $apiKey === '') {
-    fwrite(STDERR, "Missing ODDSOCKETS_API_KEY. Get a free key (see README), then:\n");
+    fwrite(STDERR, "Missing ODDSOCKETS_API_KEY. Get an API key (see README), then:\n");
     fwrite(STDERR, "  export ODDSOCKETS_API_KEY=\"ak_...\"\n");
     exit(1);
 }

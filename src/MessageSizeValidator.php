@@ -9,13 +9,13 @@ use InvalidArgumentException;
 /**
  * Message size validator for OddSockets messages.
  * 
- * Validates message size limits to match industry standards (PubNub, Socket.IO)
+ * Validates message sizes against the platform limit
  * for reliable real-time messaging.
  */
 class MessageSizeValidator
 {
     /**
-     * Message size limits (industry standard - matches PubNub)
+     * Platform message size limit, enforced server-side
      */
     public const MAX_MESSAGE_SIZE = 32768; // 32KB in bytes
     public const MAX_MESSAGE_SIZE_KB = 32;
@@ -36,8 +36,8 @@ class MessageSizeValidator
             $messageSizeKB = round($messageSize / 1024);
             throw new InvalidArgumentException(
                 "Message size ({$messageSizeKB}KB) exceeds maximum allowed size of " . 
-                self::MAX_MESSAGE_SIZE_KB . "KB. This limit matches industry standards " .
-                "(PubNub, Socket.IO) for reliable real-time messaging."
+                self::MAX_MESSAGE_SIZE_KB . "KB. " .
+                "Split the payload, or publish a reference to it instead."
             );
         }
         
