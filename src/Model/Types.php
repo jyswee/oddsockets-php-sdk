@@ -541,6 +541,97 @@ final class HistoryOptions implements JsonSerializable
 }
 
 /**
+ * Owner-scoped usage analytics returned by OddSocketsClient::getUsageStats().
+ *
+ * Each tile (mau/dau/totalMessages/errorRate) is an int|float OR null; a null
+ * tile means "no data" and is deliberately never coerced to 0.
+ */
+final class UsageStats implements JsonSerializable
+{
+    public function __construct(
+        private readonly int|float|null $mau,
+        private readonly int|float|null $dau,
+        private readonly int|float|null $totalMessages,
+        private readonly int|float|null $errorRate,
+        private readonly ?string $ownerScope,
+        private readonly mixed $detail,
+        private readonly ?string $timestamp
+    ) {
+    }
+
+    public function getMau(): int|float|null
+    {
+        return $this->mau;
+    }
+
+    public function getDau(): int|float|null
+    {
+        return $this->dau;
+    }
+
+    public function getTotalMessages(): int|float|null
+    {
+        return $this->totalMessages;
+    }
+
+    public function getErrorRate(): int|float|null
+    {
+        return $this->errorRate;
+    }
+
+    public function getOwnerScope(): ?string
+    {
+        return $this->ownerScope;
+    }
+
+    public function getDetail(): mixed
+    {
+        return $this->detail;
+    }
+
+    public function getTimestamp(): ?string
+    {
+        return $this->timestamp;
+    }
+
+    /**
+     * Build from the decoded /api/tenant/usage response, preserving null tiles.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function fromArray(array $data): self
+    {
+        $tiles = (isset($data['tiles']) && is_array($data['tiles'])) ? $data['tiles'] : [];
+
+        return new self(
+            mau: $tiles['mau'] ?? null,
+            dau: $tiles['dau'] ?? null,
+            totalMessages: $tiles['totalMessages'] ?? null,
+            errorRate: $tiles['errorRate'] ?? null,
+            ownerScope: $data['ownerScope'] ?? null,
+            detail: $data['detail'] ?? null,
+            timestamp: $data['timestamp'] ?? null
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function jsonSerialize(): array
+    {
+        return [
+            'mau' => $this->mau,
+            'dau' => $this->dau,
+            'totalMessages' => $this->totalMessages,
+            'errorRate' => $this->errorRate,
+            'ownerScope' => $this->ownerScope,
+            'detail' => $this->detail,
+            'timestamp' => $this->timestamp,
+        ];
+    }
+}
+
+/**
  * Common message types for structured messaging.
  */
 final class MessageTypes

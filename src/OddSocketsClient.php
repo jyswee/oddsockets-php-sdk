@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OddSockets;
 
 use OddSockets\Config\OddSocketsConfig;
+use OddSockets\Model\UsageStats;
 use OddSockets\Exception\OddSocketsException;
 use OddSockets\Exception\ConnectionException;
 use OddSockets\Exception\AuthenticationException;
@@ -280,6 +281,70 @@ class OddSocketsClient implements EventEmitterInterface
     public function getSessionInfo(): ?array
     {
         return $this->sessionInfo;
+    }
+
+    /**
+     * Fetch owner-scoped usage analytics for this tenant.
+     *
+     * Queries the manager's /api/tenant/usage endpoint with the configured API
+     * key. Only key-mode clients can call this: a keyless/token client carries
+     * no owner scope for the manager to attribute usage to.
+     *
+     * Each tile (mau/dau/totalMessages/errorRate) on the resolved UsageStats is
+     * an int|float OR null; a null tile is preserved and never coerced to 0.
+     *
+     * @return PromiseInterface Resolves to a UsageStats, or rejects with an
+     *   OddSocketsException (token mode) / ConnectionException (request failure).
+     */
+    public function getUsageStats(): PromiseInterface
+    {
+        // getApiKey() returns '' (never null) in token mode; treat an empty key
+        // the same as no key, mirroring the reference SDK's !apiKey guard.
+        if ($this->isTokenMode() || $this->config->getApiKey() === '') {
+            return \React\Promise\reject(new OddSocketsException(
+                'getUsageStats requires an apiKey (keyless/token clients have no owner scope to query)'
+            ));
+        }
+
+        $apiKey = $this->config->getApiKey();
+
+        try {
+            // Resolve the manager exactly as the worker-selection call does.
+            $managerUrl = $this->managerDiscovery->discoverManagerUrl();
+        } catch (\Throwable $error) {
+            return \React\Promise\reject(new ConnectionException(
+                'Failed to resolve manager URL: ' . $error->getMessage(),
+                0,
+                $error instanceof \Exception ? $error : null
+            ));
+        }
+
+        $url = $managerUrl . '/api/tenant/usage';
+
+        // Reuse the same ReactPHP HTTP client as the worker-selection call.
+        return $this->httpClient->get($url, [
+            'X-API-Key' => $apiKey,
+            'User-Agent' => 'OddSockets-PHP-SDK/1.0.0',
+        ])->then(function (ResponseInterface $response) {
+            $data = json_decode((string) $response->getBody(), true);
+            if (!is_array($data)) {
+                $data = [];
+            }
+            return UsageStats::fromArray($data);
+        }, function (\Throwable $error) {
+            if ($error instanceof ResponseException) {
+                throw new ConnectionException(
+                    'Usage stats request failed: ' . $error->getMessage(),
+                    0,
+                    $error
+                );
+            }
+            throw new ConnectionException(
+                'Manager is offline. Cannot fetch usage stats.',
+                0,
+                $error instanceof \Exception ? $error : null
+            );
+        });
     }
 
     /**
