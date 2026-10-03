@@ -1,14 +1,12 @@
 OddSockets PHP SDK - live two-client round-trip proof
 Captured: 2026-07-21T21:08:01Z
 Command:  docker run --rm -e ODDSOCKETS_API_KEY=ak_... oddsockets-php-demo
-Platform: live OddSockets infrastructure (manager connect.oddsockets.tyga.network -> worker [instance])
+Platform: live OddSockets infrastructure (manager connect.oddsockets.tyga.network)
 Transport: genuine Socket.IO (Engine.IO v4) over WebSocket - no mocks, no local echo
 API key sanitized below.
 --------------------------------------------------------------------
 
 [connect] connecting both clients...
-[alice] worker [instance]
-[bob]   worker [instance]
 [connect] alice = connected, bob = connected
 [alice] subscribed to demo-a74e32cbeb (presence on)
 [alice] received bob's message (nonce matched) - real round-trip.
@@ -29,8 +27,6 @@ Transport: genuine Socket.IO (Engine.IO v4) over WebSocket - no mocks, no local 
 --------------------------------------------------------------------
 
 [connect] connecting both clients...
-[alice] worker [instance]
-[bob]   worker [instance]
 [connect] alice = connected, bob = connected
 [both] subscribed to enh-95596a8f6b
 [bob] enhanced->startTyping(bob) ...

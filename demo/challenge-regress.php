@@ -48,10 +48,12 @@ $alice = OddSockets::create(OddSocketsConfig::builder($apiKey)
 $bob = OddSockets::create(OddSocketsConfig::builder($apiKey)
     ->userId('bob')->managerUrl($managerUrl)->autoConnect(false)->timeout(15)->build());
 
+// Captured only so the summary can report whether the two clients landed on
+// the same instance or different ones. The id itself is never printed.
 $alice->on('worker_assigned', function ($w) use (&$aliceWorker) {
-    $aliceWorker = $w['workerId'] ?? '?'; echo "[alice] worker $aliceWorker\n"; });
+    $aliceWorker = $w['workerId'] ?? '?'; });
 $bob->on('worker_assigned', function ($w) use (&$bobWorker) {
-    $bobWorker = $w['workerId'] ?? '?'; echo "[bob]   worker $bobWorker\n"; });
+    $bobWorker = $w['workerId'] ?? '?'; });
 
 $describe = function ($e): string {
     if ($e instanceof \Throwable) return $e->getMessage();
@@ -371,8 +373,12 @@ register_shutdown_function(function () use (&$results, &$aliceWorker, &$bobWorke
         $r['ok'] ? $pass++ : $fail++;
     }
     echo "----------------------------------------\n";
-    echo "  workers: alice=$aliceWorker  bob=$bobWorker  ("
-        . ($aliceWorker !== $bobWorker && $aliceWorker !== '?' && $bobWorker !== '?' ? 'CROSS-WORKER' : 'same/unknown') . ")\n";
+    $known = $aliceWorker !== '?' && $bobWorker !== '?';
+    echo "  workers: " . (!$known
+        ? 'placement unknown'
+        : ($aliceWorker !== $bobWorker
+            ? 'alice and bob on different instances (CROSS-WORKER)'
+            : 'alice and bob on the same instance')) . "\n";
     echo "  RESULT: " . ($fail === 0 && $pass > 0 ? "PASS ($pass)" : "FAIL ($fail failed / $pass passed)") . "\n";
     echo "========================================\n";
 });

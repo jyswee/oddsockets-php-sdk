@@ -43,12 +43,6 @@ $subscriber = OddSockets::create(OddSocketsConfig::builder($apiKey)
 $publisher = OddSockets::create(OddSocketsConfig::builder($apiKey)
     ->userId('bob')->autoConnect(false)->timeout(15)->build());
 
-$subscriber->on('worker_assigned', function ($w) {
-    echo "[alice] worker " . ($w['workerId'] ?? '?') . "\n";
-});
-$publisher->on('worker_assigned', function ($w) {
-    echo "[bob]   worker " . ($w['workerId'] ?? '?') . "\n";
-});
 // The SDK surfaces two kinds of "error": transport-level Throwables and
 // worker application errors delivered as an associative array ({type,message}).
 $describeError = function ($e): string {

@@ -35,9 +35,6 @@ $alice = OddSockets::create(OddSocketsConfig::builder($apiKey)
 $bob = OddSockets::create(OddSocketsConfig::builder($apiKey)
     ->userId('bob')->autoConnect(false)->timeout(15)->build());
 
-$alice->on('worker_assigned', fn($w) => print("[alice] worker " . ($w['workerId'] ?? '?') . "\n"));
-$bob->on('worker_assigned', fn($w) => print("[bob]   worker " . ($w['workerId'] ?? '?') . "\n"));
-
 $gotTyping = false;
 $gotReaction = false;
 
